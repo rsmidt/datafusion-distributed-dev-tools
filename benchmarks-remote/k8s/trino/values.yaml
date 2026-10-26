@@ -1,4 +1,4 @@
-image: trinodb/trino:476
+image: trinodb/trino:484
 workerReplicas: 12
 trino:
   workerHeap: 10G

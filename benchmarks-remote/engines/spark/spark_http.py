@@ -15,9 +15,9 @@ def get_spark():
         master_host = os.environ.get('SPARK_MASTER_HOST', 'localhost')
         spark_home = os.environ.get('SPARK_HOME', '/opt/spark')
         spark_jars = os.environ.get('SPARK_JARS', ','.join([
-            f'{spark_home}/jars/hadoop-aws-3.4.1.jar',
-            f'{spark_home}/jars/bundle-2.29.52.jar',
-            f'{spark_home}/jars/aws-java-sdk-bundle-1.12.262.jar',
+            f'{spark_home}/jars/hadoop-aws-3.5.0.jar',
+            f'{spark_home}/jars/bundle-2.35.4.jar',
+            f'{spark_home}/jars/analyticsaccelerator-s3-1.3.1.jar',
         ]))
         endpoint = os.environ['AWS_ENDPOINT_URL']
         spark = SparkSession.builder \
