@@ -45,6 +45,7 @@ spec:
       containers:
         - name: trino
           image: {{ .Values.image | quote }}
+          {{- include "trino.sizedLauncher" . | nindent 10 }}
           envFrom:
             - secretRef: {name: benchmark-s3}
           ports:
@@ -57,8 +58,7 @@ spec:
             periodSeconds: 5
             failureThreshold: 60
           resources:
-            requests: {cpu: "500m", memory: 2Gi}
-            limits: {cpu: "1", memory: 3Gi}
+            {{- toYaml (required "coordinatorResources is required" .Values.coordinatorResources) | nindent 12 }}
           volumeMounts:
             - {name: config, mountPath: /etc/trino/node.properties, subPath: node.properties}
             - {name: config, mountPath: /etc/trino/jvm.config, subPath: coordinator-jvm.config}
@@ -116,6 +116,7 @@ spec:
       containers:
         - name: trino
           image: {{ .Values.image | quote }}
+          {{- include "trino.sizedLauncher" . | nindent 10 }}
           envFrom:
             - secretRef: {name: benchmark-s3}
           # /v1/info answers before startup finishes; the image's check waits for "starting": false.

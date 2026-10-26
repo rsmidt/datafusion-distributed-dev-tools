@@ -1,9 +1,5 @@
 image: trinodb/trino:484
 workerReplicas: 12
-trino:
-  workerHeap: 10G
-  workerQueryMemoryPerNode: 8GB
-  workerHeapHeadroom: 1.5GB
 workerNodeSelector: {}
 coordinatorNodeSelector: {}
 tolerations: []

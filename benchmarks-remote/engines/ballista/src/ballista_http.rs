@@ -10,11 +10,12 @@ use ballista::prelude::*;
 use futures::{StreamExt, TryFutureExt};
 use log::{error, info};
 use object_store::aws::AmazonS3Builder;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::Display;
 use std::sync::Arc;
+use std::time::Duration;
 use structopt::StructOpt;
 use url::Url;
 
@@ -25,6 +26,43 @@ struct QueryResult {
     elapsed_ms: f64,
 }
 
+#[derive(Deserialize)]
+struct Executor {
+    specification: ExecutorSpecification,
+}
+
+#[derive(Deserialize)]
+struct ExecutorSpecification {
+    vcores: usize,
+}
+
+async fn registered_executors() -> Result<Vec<Executor>, reqwest::Error> {
+    reqwest::get("http://localhost:50050/api/executors")
+        .await?
+        .error_for_status()?
+        .json()
+        .await
+}
+
+/// Total task slots of the cluster, once `expected` executors have registered
+/// with the scheduler. The scheduler runs in this pod.
+async fn cluster_vcores(expected: usize) -> Result<usize, String> {
+    let deadline = Instant::now() + Duration::from_secs(300);
+    let mut registered = 0;
+    while Instant::now() < deadline {
+        if let Ok(executors) = registered_executors().await {
+            registered = executors.len();
+            if registered >= expected {
+                return Ok(executors.iter().map(|e| e.specification.vcores).sum());
+            }
+        }
+        tokio::time::sleep(Duration::from_secs(2)).await;
+    }
+    Err(format!(
+        "only {registered} of {expected} Ballista executors registered within 300s"
+    ))
+}
+
 #[derive(Debug, StructOpt, Clone)]
 #[structopt(about = "worker spawn command")]
 struct Cmd {
@@ -32,9 +70,9 @@ struct Cmd {
     #[structopt(long, default_value = "datafusion-distributed-benchmarks")]
     bucket: String,
 
-    /// Number of partitions used for scans and distributed shuffle stages.
-    #[structopt(long, default_value = "96")]
-    target_partitions: usize,
+    /// Number of executors to wait for before running queries.
+    #[structopt(long)]
+    executors: usize,
 }
 
 #[tokio::main]
@@ -63,13 +101,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let runtime_env = Arc::new(RuntimeEnv::default());
     runtime_env.register_object_store(&s3_url, s3);
 
-    info!(
-        "Configuring Ballista with {} target partitions",
-        cmd.target_partitions
-    );
-    let config = SessionConfig::new_with_ballista()
-        .with_ballista_job_name("Benchmarks")
-        .with_target_partitions(cmd.target_partitions);
+    let config = SessionConfig::new_with_ballista().with_ballista_job_name("Benchmarks");
 
     let state = SessionStateBuilder::new()
         .with_config(config)
@@ -80,6 +112,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // pod. Ballista propagates this address to executors, where localhost would
     // incorrectly refer to the executor pod itself.
     let ctx = SessionContext::remote_with_state("df://ballista:50050", state).await?;
+    let executors = cmd.executors;
 
     let http_server = axum::serve(
         listener,
@@ -90,6 +123,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
                 async move {
                     let sql = params.get("sql").ok_or(err("Missing 'sql' parameter"))?;
+
+                    // One partition per executor task slot, so every query uses the whole cluster.
+                    let partitions = cluster_vcores(executors).await.map_err(err)?;
+                    info!("Using {partitions} target partitions");
+                    ctx.sql(&format!(
+                        "SET datafusion.execution.target_partitions = {partitions}"
+                    ))
+                    .await
+                    .map_err(err)?;
 
                     let mut df_opt = None;
                     for sql in sql.split(";") {

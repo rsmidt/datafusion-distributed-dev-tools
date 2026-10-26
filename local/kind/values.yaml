@@ -1,4 +1,6 @@
-# Sizes that fit several engines on one laptop. Not representative for timing.
+# kind nodes all share the laptop's CPUs and memory, so limits stand in for
+# node sizes; every engine sizes itself to its limits. Not representative for
+# timing.
 workerResources:
   requests:
     cpu: "1"
@@ -6,12 +8,10 @@ workerResources:
   limits:
     cpu: "2"
     memory: 3Gi
-trino:
-  workerHeap: 2G
-  workerQueryMemoryPerNode: 1GB
-  workerHeapHeadroom: 512MB
-spark:
-  workerCores: 2
-  workerMemory: 2g
-ballista:
-  executorMemoryPool: 2GiB
+coordinatorResources:
+  requests:
+    cpu: 250m
+    memory: 1Gi
+  limits:
+    cpu: "2"
+    memory: 3Gi

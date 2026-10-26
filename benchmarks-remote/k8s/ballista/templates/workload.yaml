@@ -58,16 +58,14 @@ spec:
             - secretRef: {name: benchmark-s3}
           ports:
             - {name: scheduler, containerPort: 50050}
-          # Finished job state takes hundreds of MiB for join-heavy queries.
           resources:
-            requests: {cpu: "250m", memory: 1Gi}
-            limits: {cpu: "1", memory: 8Gi}
+            {{- toYaml (required "coordinatorResources is required" .Values.coordinatorResources) | nindent 12 }}
           volumeMounts:
             - {name: binaries, mountPath: /opt/benchmark}
         - name: http
           image: {{ .Values.runtimeImage | quote }}
           command: ["/opt/benchmark/ballista-http"]
-          args: ["--bucket", {{ required "datasetBucket is required" .Values.datasetBucket | quote }}, "--target-partitions", "96"]
+          args: ["--bucket", {{ required "datasetBucket is required" .Values.datasetBucket | quote }}, "--executors", {{ .Values.workerReplicas | quote }}]
           envFrom:
             - secretRef: {name: benchmark-s3}
           ports:
@@ -133,7 +131,7 @@ spec:
         - name: executor
           image: {{ .Values.runtimeImage | quote }}
           command: ["/opt/benchmark/ballista-executor"]
-          args: ["--bind-host", "0.0.0.0", "--bind-port", "50051", "--work-dir", "/var/ballista", "--scheduler-host", "ballista", "--scheduler-port", "50050", "--memory-pool-size", {{ .Values.ballista.executorMemoryPool | quote }}, "--job-data-clean-up-interval-seconds", "300", "--job-data-ttl-seconds", "3600"]
+          args: ["--bind-host", "0.0.0.0", "--bind-port", "50051", "--work-dir", "/var/ballista", "--scheduler-host", "ballista", "--scheduler-port", "50050", "--job-data-clean-up-interval-seconds", "300", "--job-data-ttl-seconds", "3600"]
           env:
             - {name: BUCKET, value: {{ required "datasetBucket is required" .Values.datasetBucket | quote }}}
           envFrom:

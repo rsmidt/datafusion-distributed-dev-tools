@@ -2,8 +2,6 @@ artifactImage: rclone/rclone:1.75.2
 runtimeImage: redhat/ubi9-minimal:9.8
 datasetBucket: ""
 workerReplicas: 12
-ballista:
-  executorMemoryPool: 16GiB
 artifacts:
   scheduler: ""
   executor: ""

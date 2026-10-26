@@ -7,24 +7,12 @@ const root = path.resolve(__dirname, "..");
 const commonResourceTemplate =
   'toYaml (required "workerResources is required" .Values.workerResources) | nindent 12';
 
-test("all engine workers consume the same node-filling resources", () => {
+test("engine pods have no limits, so engines size themselves to their node", () => {
   const values = fs.readFileSync(
     path.join(root, "k8s/worker-resources.yaml"),
     "utf8",
   );
-  assert.equal(
-    values,
-    [
-      "workerResources:",
-      "  requests:",
-      '    cpu: "7"',
-      "    memory: 17Gi",
-      "  limits:",
-      '    cpu: "7"',
-      "    memory: 17Gi",
-      "",
-    ].join("\n"),
-  );
+  assert.doesNotMatch(values, /^\s*limits:/m);
 
   for (const template of [
     "k8s/datafusion/templates/worker.yaml",

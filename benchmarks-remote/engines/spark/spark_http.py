@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
+import json
 import os
 import time
+import urllib.request
 from flask import Flask, request, jsonify
 from pyspark.sql import SparkSession
 
@@ -8,6 +10,24 @@ app = Flask(__name__)
 
 # Initialize Spark session
 spark = None
+
+def executor_memory_mb():
+    """Gives each executor all the memory its worker offers, once every
+    expected worker has registered. The master runs in this pod, so its status
+    page is on localhost."""
+    expected = int(os.environ['SPARK_WORKERS'])
+    deadline = time.monotonic() + 300
+    alive = []
+    while time.monotonic() < deadline:
+        try:
+            with urllib.request.urlopen('http://localhost:8080/json/') as response:
+                alive = [w for w in json.load(response)['workers'] if w['state'] == 'ALIVE']
+        except OSError:
+            pass
+        if len(alive) >= expected:
+            return min(w['memory'] for w in alive)
+        time.sleep(2)
+    raise RuntimeError(f'Only {len(alive)} of {expected} Spark workers registered within 300s')
 
 def get_spark():
     global spark
@@ -26,6 +46,8 @@ def get_spark():
             .config("spark.driver.host", os.environ.get('SPARK_DRIVER_HOST', 'spark')) \
             .config("spark.driver.bindAddress", "0.0.0.0") \
             .config("spark.driver.port", "7078") \
+            .config("spark.driver.memory", f"{int(os.environ['MEMORY_MB']) * 70 // 100}m") \
+            .config("spark.executor.memory", f"{executor_memory_mb()}m") \
             .config("spark.blockManager.port", "7079") \
             .config("spark.jars", spark_jars) \
             .config("spark.sql.catalogImplementation", "hive") \

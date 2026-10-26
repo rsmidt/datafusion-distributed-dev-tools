@@ -55,6 +55,10 @@ spec:
             - {name: SPARK_MASTER_HOST, value: spark}
             - {name: SPARK_DRIVER_HOST, value: spark}
             - {name: HTTP_PORT, value: "9000"}
+            - {name: SPARK_WORKERS, value: {{ .Values.workerReplicas | quote }}}
+            - name: MEMORY_MB
+              valueFrom:
+                resourceFieldRef: {resource: limits.memory, divisor: 1Mi}
           envFrom:
             - secretRef: {name: benchmark-s3}
           ports:
@@ -66,8 +70,7 @@ spec:
             periodSeconds: 5
             failureThreshold: 60
           resources:
-            requests: {cpu: "250m", memory: 1Gi}
-            limits: {cpu: "1", memory: 2Gi}
+            {{- toYaml (required "coordinatorResources is required" .Values.coordinatorResources) | nindent 12 }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -106,10 +109,16 @@ spec:
       containers:
         - name: worker
           image: {{ required "image is required" .Values.image | quote }}
-          command: ["spark-class", "org.apache.spark.deploy.worker.Worker", "spark://spark:7077"]
+          # Offer every CPU and 70% of the memory the container can use (its
+          # limit, or the node's allocatable resources) to the executor.
+          command: ["bash", "-c", "SPARK_WORKER_MEMORY=$((MEMORY_MB * 70 / 100))m exec spark-class org.apache.spark.deploy.worker.Worker spark://spark:7077"]
           env:
-            - {name: SPARK_WORKER_CORES, value: {{ .Values.spark.workerCores | quote }}}
-            - {name: SPARK_WORKER_MEMORY, value: {{ .Values.spark.workerMemory | quote }}}
+            - name: SPARK_WORKER_CORES
+              valueFrom:
+                resourceFieldRef: {resource: limits.cpu}
+            - name: MEMORY_MB
+              valueFrom:
+                resourceFieldRef: {resource: limits.memory, divisor: 1Mi}
           envFrom:
             - secretRef: {name: benchmark-s3}
           resources:

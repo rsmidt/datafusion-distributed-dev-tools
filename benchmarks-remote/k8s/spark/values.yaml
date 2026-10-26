@@ -1,8 +1,5 @@
 image: ""
 workerReplicas: 12
-spark:
-  workerCores: 7
-  workerMemory: 15g
 workerNodeSelector: {}
 coordinatorNodeSelector: {}
 tolerations: []

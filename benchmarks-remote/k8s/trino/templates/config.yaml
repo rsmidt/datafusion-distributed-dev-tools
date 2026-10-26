@@ -10,12 +10,10 @@ data:
     node.data-dir=/var/trino/data
   coordinator-jvm.config: |
     -server
-    -Xmx2G
     -XX:+UseG1GC
     -XX:+ExitOnOutOfMemoryError
   worker-jvm.config: |
     -server
-    -Xmx{{ .Values.trino.workerHeap }}
     -XX:+UseG1GC
     -XX:G1HeapRegionSize=32M
     -XX:+ExplicitGCInvokesConcurrent
@@ -27,18 +25,19 @@ data:
     node-scheduler.include-coordinator=false
     http-server.http.port=9000
     discovery.uri=http://trino:9000
-    query.max-memory=80GB
-    query.max-total-memory=80GB
-    query.max-memory-per-node=1GB
-    memory.heap-headroom-per-node=512MB
+    # Per-node limits bound each query; the cluster-wide limits do not.
+    query.max-memory=1PB
+    query.max-total-memory=1PB
+    query.max-memory-per-node=${ENV:TRINO_QUERY_MEMORY_PER_NODE}
+    memory.heap-headroom-per-node=${ENV:TRINO_HEAP_HEADROOM}
   worker.properties: |
     coordinator=false
     http-server.http.port=9000
     discovery.uri=http://trino:9000
-    query.max-memory=80GB
-    query.max-total-memory=80GB
-    query.max-memory-per-node={{ .Values.trino.workerQueryMemoryPerNode }}
-    memory.heap-headroom-per-node={{ .Values.trino.workerHeapHeadroom }}
+    query.max-memory=1PB
+    query.max-total-memory=1PB
+    query.max-memory-per-node=${ENV:TRINO_QUERY_MEMORY_PER_NODE}
+    memory.heap-headroom-per-node=${ENV:TRINO_HEAP_HEADROOM}
   hive.properties: |
     connector.name=hive
     hive.metastore=file

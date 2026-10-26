@@ -27,13 +27,25 @@ run Helm, upload datasets, or uninstall the engine. Deployments keep their
 cluster capacity between runs until their corresponding `<engine>-destroy`
 command is invoked.
 
-All measured worker and executor pods load
-[`worker-resources.yaml`](./worker-resources.yaml). They request and limit the
-same 7 CPUs and 17 GiB of memory, sized to fill one 8-vCPU, 21 GiB benchmark
-node per pod while leaving capacity for Kubernetes system overhead. Every
-engine defaults to 12 worker replicas, and required pod anti-affinity places
-each worker on a distinct node. Engine coordinators are not part of the
-measured worker capacity. ClickHouse has no separate coordinator: every worker belongs to the
+Every engine uses all the CPUs and memory of the node it runs on, whatever the
+node size. [`worker-resources.yaml`](./worker-resources.yaml) gives worker and
+coordinator pods small requests and no limits, and each engine sizes itself to
+the memory and CPUs its container can use, which is its limit or, without one,
+the node's allocatable resources:
+
+- DataFusion and ClickHouse detect the CPUs and memory themselves.
+- Ballista executors use one task slot per CPU and a memory pool of 70% of
+  memory. Each query uses one partition per task slot in the cluster.
+- Trino starts each JVM with 70% of memory as heap; a worker gives 80% of the
+  heap to query memory and keeps 15% as headroom.
+- Spark workers offer every CPU and 70% of memory, each executor takes all of
+  its worker's offer, and the driver heap is 70% of its container's memory.
+
+Pods without limits assume they own their node: deploy one engine at a time,
+and keep other workloads off benchmark nodes. A target's `helmValues` can set
+limits to cap engine sizes, as [the kind values](../../local/kind/values.yaml)
+do. Every engine defaults to 12 worker replicas, and required pod
+anti-affinity places each worker on a distinct node. ClickHouse has no separate coordinator: every worker belongs to the
 `benchmark` cluster, and the `clickhouse` service sends queries to the first
 worker. The ClickHouse client replaces each table in a query with an
 `s3Cluster` read, so every worker scans Parquet files and applies filters and
@@ -47,11 +59,8 @@ The target's `helmValues` file is applied to every chart after
 
 - `workerNodeSelector`, `coordinatorNodeSelector`, and `tolerations` for node
   placement;
-- `workerResources` for the measured pods;
-- engine tuning that must follow the worker size: `trino.workerHeap`,
-  `trino.workerQueryMemoryPerNode`, `trino.workerHeapHeadroom`,
-  `spark.workerCores`, `spark.workerMemory`, and
-  `ballista.executorMemoryPool`.
+- `workerResources` for worker and executor pods, and `coordinatorResources`
+  for the Trino coordinator, the Spark driver, and the Ballista scheduler.
 
 Every engine pod loads S3 settings and credentials from the `benchmark-s3`
 secret written by `npm run install-tenancy`. DataFusion and Ballista download

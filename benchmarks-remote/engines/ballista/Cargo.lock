@@ -545,6 +545,7 @@ dependencies = [
  "futures",
  "log",
  "object_store",
+ "reqwest",
  "serde",
  "structopt",
  "tokio",

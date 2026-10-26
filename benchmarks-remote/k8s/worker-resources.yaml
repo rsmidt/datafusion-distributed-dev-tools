@@ -1,7 +1,10 @@
+# Requests only. Without limits, every engine sizes itself to the node it runs
+# on; a target's helmValues can add limits to cap that size.
 workerResources:
   requests:
-    cpu: "7"
-    memory: 17Gi
-  limits:
-    cpu: "7"
-    memory: 17Gi
+    cpu: "1"
+    memory: 2Gi
+coordinatorResources:
+  requests:
+    cpu: 250m
+    memory: 1Gi
