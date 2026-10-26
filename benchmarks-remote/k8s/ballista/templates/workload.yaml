@@ -51,16 +51,17 @@ spec:
         - name: scheduler
           image: {{ .Values.runtimeImage | quote }}
           command: ["/opt/benchmark/ballista-scheduler"]
-          args: ["--bind-host", "0.0.0.0", "--external-host", "ballista", "--bind-port", "50050"]
+          args: ["--bind-host", "0.0.0.0", "--external-host", "ballista", "--bind-port", "50050", "--finished-job-state-clean-up-interval-seconds", "10"]
           env:
             - {name: BUCKET, value: {{ required "datasetBucket is required" .Values.datasetBucket | quote }}}
           envFrom:
             - secretRef: {name: benchmark-s3}
           ports:
             - {name: scheduler, containerPort: 50050}
+          # Finished job state takes hundreds of MiB for join-heavy queries.
           resources:
             requests: {cpu: "250m", memory: 1Gi}
-            limits: {cpu: "1", memory: 2Gi}
+            limits: {cpu: "1", memory: 8Gi}
           volumeMounts:
             - {name: binaries, mountPath: /opt/benchmark}
         - name: http
