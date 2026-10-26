@@ -38,7 +38,7 @@ for engine in ${usage_engines//,/ }; do
   [ "$engine" = datafusion ] && extra=(--result-name datafusion)
   if npm run --silent "$engine-deploy" &&
     echo "==> Benchmarking $engine on $dataset" &&
-    npm run --silent "$engine-bench" -- "$dataset" "${bench_args[@]}" "${extra[@]}"; then
+    npm run --silent "$engine-bench" -- "$dataset" "${bench_args[@]}" ${extra[@]+"${extra[@]}"}; then
     completed+=("$engine")
   else
     failed+=("$engine")
