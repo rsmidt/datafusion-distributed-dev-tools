@@ -157,7 +157,12 @@ export function publishImage(env: Environment, engine: string): string {
       allowFailure: true,
     }) !== "";
   if (!exists()) {
-    command("docker", ["build", "--tag", image, context], { stderr: true });
+    // Match the x86_64 binaries the other engines ship, also when built on arm64.
+    command(
+      "docker",
+      ["build", "--platform", "linux/amd64", "--tag", image, context],
+      { stderr: true },
+    );
     command("docker", ["push", image], { stderr: true });
   }
   console.error(`Published ${image}`);
