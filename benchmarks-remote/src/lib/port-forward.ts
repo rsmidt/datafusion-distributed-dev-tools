@@ -2,11 +2,10 @@ import { spawn } from "node:child_process";
 
 export async function withKubectlPortForward<T>(
   configuration: {
-    clusterName: string;
+    context: string;
     deployment: string;
     service: string;
-    region: string;
-    kubeconfig: string;
+    localPort?: string;
   },
   callback: () => Promise<T>,
 ): Promise<T> {
@@ -19,40 +18,34 @@ export async function withKubectlPortForward<T>(
   let contextIsConfigured = false;
   try {
     const result = await runKubectl([
-      "--kubeconfig",
-      configuration.kubeconfig,
       "config",
       "get-contexts",
-      configuration.clusterName,
+      configuration.context,
       "-o",
       "name",
     ]);
     contextIsConfigured =
-      result.exitCode === 0 &&
-      result.stdout.trim() === configuration.clusterName;
+      result.exitCode === 0 && result.stdout.trim() === configuration.context;
   } catch {
     // Report the same setup instructions for a missing kubeconfig or kubectl.
   }
   if (!contextIsConfigured) {
     throw new Error(
-      `Kubernetes context '${configuration.clusterName}' is not available in ${configuration.kubeconfig}. ` +
-        `Run aws eks update-kubeconfig for cluster '${configuration.clusterName}' in ` +
-        `region '${configuration.region}', then retry.`,
+      `Kubernetes context '${configuration.context}' is not available in the current kubeconfig. ` +
+        "Set KUBECONFIG or kubeContext in the benchmark target, then retry.",
     );
   }
 
   const child = spawn(
     "kubectl",
     [
-      "--kubeconfig",
-      configuration.kubeconfig,
       "--context",
-      configuration.clusterName,
+      configuration.context,
       "port-forward",
       "--namespace",
       `benchmark-${configuration.deployment}`,
       `service/${configuration.service}`,
-      "9000:9000",
+      `${configuration.localPort ?? "9000"}:9000`,
     ],
     { env: process.env, stdio: ["ignore", "pipe", "pipe"] },
   );

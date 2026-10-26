@@ -1,8 +1,9 @@
 name: datafusion
+workerNodeSelector: {}
+tolerations: []
 worker:
   replicas: 12
-  instanceType: c5n.2xlarge
   artifact: ""
-  artifactImage: public.ecr.aws/aws-cli/aws-cli:2.27.49
-  runtimeImage: public.ecr.aws/amazonlinux/amazonlinux:2023
+  artifactImage: rclone/rclone:1.75.2
+  runtimeImage: redhat/ubi9-minimal:9.8
   datasetBucket: ""

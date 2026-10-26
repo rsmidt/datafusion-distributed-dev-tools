@@ -12,15 +12,16 @@ const Options = object({
     }),
   ),
 });
-try {
+async function main(): Promise<void> {
   const flags = runSync(Options, {
     help: "option",
     showDefault: true,
     description: message`Publish Ballista binaries`,
   });
 
-  console.log(JSON.stringify(publishBallista(new Environment(flags))));
-} catch (error: unknown) {
+  console.log(JSON.stringify(await publishBallista(new Environment(flags))));
+}
+void main().catch((error: unknown) => {
   console.error(errorMessage(error));
   process.exitCode = 1;
-}
+});

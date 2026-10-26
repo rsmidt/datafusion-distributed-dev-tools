@@ -2,8 +2,12 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { execFile, spawnSync } from "node:child_process";
+import { once } from "node:events";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import test from "node:test";
+import { promisify } from "node:util";
 import {
   deploymentName,
   workerSelector,
@@ -14,29 +18,47 @@ const root = path.resolve(__dirname, "..");
 interface Call {
   program: string;
   args: string[];
-  kubeconfig?: string;
+  stdin?: string;
 }
-function fixture() {
+function fixture(s3Endpoint = "http://127.0.0.1:1") {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "engine-cli-"));
-  const outputs = path.join(directory, "outputs.json");
+  const target = path.join(directory, "target.json");
   const log = path.join(directory, "calls.jsonl");
+  fs.writeFileSync(path.join(directory, "values.yaml"), "");
   fs.writeFileSync(
-    outputs,
+    target,
     JSON.stringify({
-      clusterName: "test-cluster",
-      datasetBucketName: "test-datasets",
-      benchmarkNodeCount: 12,
-      benchmarkInstanceType: "c5n.2xlarge",
-      coordinatorInstanceType: "m6i.large",
+      kubeContext: "test-cluster",
+      bucket: "test-datasets",
+      s3: { endpoint: s3Endpoint, region: "us-east-1" },
+      workers: 12,
+      helmValues: "values.yaml",
     }),
   );
-  for (const name of ["aws", "helm", "kubectl", "cargo", "sudo"]) {
+  for (const name of ["helm", "kubectl", "cargo", "sudo", "docker"]) {
     fs.writeFileSync(
       path.join(directory, name),
-      `#!${process.execPath}\nconst fs=require('node:fs');const args=process.argv.slice(2); fs.appendFileSync(${JSON.stringify(log)},JSON.stringify({program:${JSON.stringify(name)},args,kubeconfig:process.env.KUBECONFIG})+'\\n'); if(${JSON.stringify(name)}==='aws'&&args.includes('head-object')) process.exit(1); if(${JSON.stringify(name)}==='kubectl'&&args.includes('pods')) console.log('worker-1');`,
+      `#!${process.execPath}\nconst fs=require('node:fs');const args=process.argv.slice(2); const stdin=${JSON.stringify(name)}==='kubectl'&&args.includes('apply')?fs.readFileSync(0,'utf8'):undefined; fs.appendFileSync(${JSON.stringify(log)},JSON.stringify({program:${JSON.stringify(name)},args,stdin})+'\\n'); if(${JSON.stringify(name)}==='kubectl'&&args.includes('pods')) console.log('worker-1');`,
       { mode: 0o755 },
     );
   }
+  const env = {
+    ...process.env,
+    PATH: `${directory}:${process.env.PATH}`,
+    DEPLOYMENT_NAME: "ignored-env-name",
+    NODE_COUNT: "999",
+    BENCHMARK_TARGET: "",
+    AWS_ACCESS_KEY_ID: "test-key",
+    AWS_SECRET_ACCESS_KEY: "test-secret",
+  };
+  const argv = (script: string, args: string[]) => [
+    "--import",
+    "tsx",
+    path.join(root, "src/bin", `${script}.ts`),
+    ...args,
+    "--target",
+    target,
+  ];
   return {
     directory,
     calls: (): Call[] =>
@@ -47,30 +69,20 @@ function fixture() {
             .split("\n")
             .map((line) => JSON.parse(line) as Call)
         : [],
+    target,
+    env,
     run: (script: string, args: string[]) =>
-      spawnSync(
-        process.execPath,
-        [
-          "--import",
-          "tsx",
-          path.join(root, "src/bin", `${script}.ts`),
-          ...args,
-          "--outputs-file",
-          outputs,
-          "--kubeconfig",
-          path.join(directory, "kubeconfig"),
-        ],
-        {
-          cwd: root,
-          env: {
-            ...process.env,
-            PATH: `${directory}:${process.env.PATH}`,
-            DEPLOYMENT_NAME: "ignored-env-name",
-            NODE_COUNT: "999",
-          },
-          encoding: "utf8",
-        },
-      ),
+      spawnSync(process.execPath, argv(script, args), {
+        cwd: root,
+        env,
+        encoding: "utf8",
+      }),
+    runAsync: (script: string, args: string[]) =>
+      promisify(execFile)(process.execPath, argv(script, args), {
+        cwd: root,
+        env,
+        encoding: "utf8",
+      }),
     close: () => fs.rmSync(directory, { recursive: true, force: true }),
   };
 }
@@ -107,7 +119,9 @@ test("deploy and destroy use explicit names and the same Kubernetes configuratio
     ])
       assert.ok(helm[0]!.args.includes(setting), setting);
     assert.deepEqual(helm[1]!.args.slice(0, 2), ["uninstall", "my-worker"]);
-    assert.equal(helm[0]!.kubeconfig, helm[1]!.kubeconfig);
+    for (const call of helm)
+      assert.deepEqual(call.args.slice(-2), ["--kube-context", "test-cluster"]);
+    assert.ok(helm[0]!.args.includes(path.join(f.directory, "values.yaml")));
     assert.ok(!f.calls().some((call) => call.program === "cargo"));
   } finally {
     f.close();
@@ -131,10 +145,25 @@ test("invalid deployment options fail before invoking external tools", () => {
     }
   }
 });
-test("publishing honors source and target paths and keeps stdout machine-readable", () => {
-  const f = fixture();
+test("publishing honors source and target paths and keeps stdout machine-readable", async (t) => {
+  const requests: string[] = [];
+  const server = createServer((request, response) => {
+    requests.push(`${request.method} ${request.url}`);
+    request.resume();
+    request.on("end", () => {
+      response.statusCode = request.method === "HEAD" ? 404 : 200;
+      response.end();
+    });
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  t.after(() => server.close());
+  const f = fixture(
+    `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+  );
   try {
     const source = path.join(f.directory, "source with spaces");
+    fs.mkdirSync(source);
     const target = path.join(f.directory, "target with spaces");
     fs.mkdirSync(path.join(target, "x86_64-unknown-linux-gnu/release"), {
       recursive: true,
@@ -143,7 +172,7 @@ test("publishing honors source and target paths and keeps stdout machine-readabl
       path.join(target, "x86_64-unknown-linux-gnu/release/worker"),
       "binary",
     );
-    const result = f.run("publish-datafusion", [
+    const result = await f.runAsync("publish-datafusion", [
       "--source-root",
       source,
       "--target-dir",
@@ -153,7 +182,6 @@ test("publishing honors source and target paths and keeps stdout machine-readabl
       "--artifact-prefix",
       "workers/datafusion",
     ]);
-    assert.equal(result.status, 0, result.stderr);
     assert.match(
       result.stdout,
       /^s3:\/\/test-artifacts\/workers\/datafusion\/[a-f0-9]{64}\/worker\n$/,
@@ -170,13 +198,10 @@ test("publishing honors source and target paths and keeps stdout machine-readabl
       "--target",
       "x86_64-unknown-linux-gnu",
     ]);
-    const upload = f
-      .calls()
-      .find((call) => call.program === "aws" && call.args.includes("cp"))!;
-    assert.ok(
-      upload.args.includes(
-        path.join(target, "x86_64-unknown-linux-gnu/release/worker"),
-      ),
+    const key = result.stdout.trim().replace("s3://", "/");
+    assert.deepEqual(
+      requests.map((request) => request.replace(/\?.*$/, "")),
+      [`HEAD ${key}`, `PUT ${key}`],
     );
   } finally {
     f.close();
@@ -193,10 +218,8 @@ test("worker commands forward flags literally after --", () => {
         "--import",
         "tsx",
         script,
-        "--outputs-file",
-        path.join(f.directory, "outputs.json"),
-        "--kubeconfig",
-        path.join(f.directory, "kubeconfig"),
+        "--target",
+        f.target,
         "spark",
         "--",
         "printf",
@@ -206,7 +229,7 @@ test("worker commands forward flags literally after --", () => {
       ],
       {
         cwd: root,
-        env: { ...process.env, PATH: `${f.directory}:${process.env.PATH}` },
+        env: f.env,
         encoding: "utf8",
       },
     );
@@ -223,9 +246,21 @@ test("worker commands forward flags literally after --", () => {
     f.close();
   }
 });
-test("all engine charts deploy through the TypeScript CLI", () => {
+test("all engine charts deploy through the TypeScript CLI", async (t) => {
+  const server = createServer((request, response) => {
+    request.resume();
+    request.on("end", () => {
+      response.statusCode = request.method === "HEAD" ? 404 : 200;
+      response.end();
+    });
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  t.after(() => server.close());
   for (const engine of ["trino", "spark", "ballista", "clickhouse"]) {
-    const f = fixture();
+    const f = fixture(
+      `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+    );
     try {
       const target = path.join(f.directory, "target");
       if (engine === "ballista") {
@@ -238,25 +273,16 @@ test("all engine charts deploy through the TypeScript CLI", () => {
         ])
           fs.writeFileSync(path.join(binaries, binary), binary);
       }
-      const result = f.run(`${engine}-deploy`, [
+      const result = await f.runAsync(`${engine}-deploy`, [
         "--deployment-name",
         "test-release",
         ...(engine === "ballista" ? ["--target-dir", target] : []),
         ...(engine === "spark" ? ["--spark-image", "test/image:tag"] : []),
       ]);
-      assert.equal(result.status, 0, result.stderr);
+      assert.equal(result.stdout.includes("Deployed test-release"), true);
       const helm = f.calls().find((call) => call.program === "helm")!;
       assert.ok(helm.args.includes(`benchmark-${engine}`));
       assert.ok(helm.args.includes("workerReplicas=12"));
-      assert.ok(helm.args.includes("workerInstanceType=c5n.2xlarge"));
-      assert.equal(
-        helm.args.includes("coordinatorInstanceType=m6i.large"),
-        engine !== "clickhouse",
-      );
-      if (engine === "trino") {
-        assert.ok(helm.args.includes("region=us-east-1"));
-        assert.ok(helm.args.includes("datasetBucket=test-datasets"));
-      }
       if (engine === "spark")
         assert.ok(helm.args.includes("image=test/image:tag"));
       if (engine === "ballista") {
@@ -278,6 +304,66 @@ test("all engine charts deploy through the TypeScript CLI", () => {
     } finally {
       f.close();
     }
+  }
+});
+test("tenancy applies the S3 secret to every engine namespace", () => {
+  const f = fixture("http://s3.storage.svc:9000");
+  try {
+    const result = f.run("install-tenancy", []);
+    assert.equal(result.status, 0, result.stderr);
+    const [helm, apply] = f.calls();
+    assert.deepEqual(helm!.args.slice(0, 3), [
+      "upgrade",
+      "--install",
+      "benchmark-tenancy",
+    ]);
+    assert.ok(apply!.args.includes("apply"));
+    const list = JSON.parse(apply!.stdin!) as {
+      items: { metadata: { namespace: string }; stringData: object }[];
+    };
+    assert.deepEqual(
+      list.items.map((item) => item.metadata.namespace),
+      ["datafusion", "trino", "spark", "ballista", "clickhouse"].map(
+        (engine) => `benchmark-${engine}`,
+      ),
+    );
+    assert.deepEqual(list.items[0]!.stringData, {
+      AWS_ENDPOINT_URL: "http://s3.storage.svc:9000",
+      AWS_REGION: "us-east-1",
+      AWS_ALLOW_HTTP: "true",
+      AWS_ACCESS_KEY_ID: "test-key",
+      AWS_SECRET_ACCESS_KEY: "test-secret",
+    });
+    assert.ok(!JSON.stringify(helm!.args).includes("test-secret"));
+  } finally {
+    f.close();
+  }
+});
+test("tenancy requires S3 credentials before changing the cluster", () => {
+  const f = fixture();
+  try {
+    f.env.AWS_SECRET_ACCESS_KEY = "";
+    const result = f.run("install-tenancy", []);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /AWS_SECRET_ACCESS_KEY/);
+    assert.deepEqual(f.calls(), []);
+  } finally {
+    f.close();
+  }
+});
+test("commands require an explicit benchmark target", () => {
+  const f = fixture();
+  try {
+    const result = spawnSync(
+      process.execPath,
+      ["--import", "tsx", path.join(root, "src/bin/datafusion-destroy.ts")],
+      { cwd: root, env: f.env, encoding: "utf8" },
+    );
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /--target <file> or BENCHMARK_TARGET/);
+    assert.deepEqual(f.calls(), []);
+  } finally {
+    f.close();
   }
 });
 test("shared engine names, release validation and worker selectors", () => {
@@ -314,13 +400,13 @@ test("migrated commands use Optique help without invoking external tools", () =>
       "spark-destroy",
       "ballista-destroy",
       "clickhouse-destroy",
-      "deploy-foundation",
-      "destroy-foundation",
+      "destroy-dataset",
       "install-tenancy",
       "publish-datafusion",
       "publish-ballista",
       "publish-image",
       "sum-tasks",
+      "summary",
       "test-render",
     ]) {
       const result = spawnSync(
@@ -333,7 +419,7 @@ test("migrated commands use Optique help without invoking external tools", () =>
         ],
         {
           cwd: root,
-          env: { ...process.env, PATH: `${f.directory}:${process.env.PATH}` },
+          env: f.env,
           encoding: "utf8",
         },
       );

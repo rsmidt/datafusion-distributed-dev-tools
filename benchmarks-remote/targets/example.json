@@ -1,0 +1,11 @@
+{
+  "kubeContext": "my-cluster",
+  "bucket": "my-benchmark-bucket",
+  "s3": {
+    "endpoint": "https://s3.example.internal",
+    "region": "us-east-1"
+  },
+  "imageRegistry": "registry.example.internal/benchmarks",
+  "workers": 12,
+  "helmValues": "example-values.yaml"
+}

@@ -1,0 +1,17 @@
+# Sizes that fit several engines on one laptop. Not representative for timing.
+workerResources:
+  requests:
+    cpu: "1"
+    memory: 3Gi
+  limits:
+    cpu: "2"
+    memory: 3Gi
+trino:
+  workerHeap: 2G
+  workerQueryMemoryPerNode: 1GB
+  workerHeapHeadroom: 512MB
+spark:
+  workerCores: 2
+  workerMemory: 2g
+ballista:
+  executorMemoryPool: 2GiB

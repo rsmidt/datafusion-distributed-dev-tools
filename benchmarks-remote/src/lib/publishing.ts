@@ -2,32 +2,48 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { setTimeout } from "node:timers/promises";
+import {
+  HeadObjectCommand,
+  NotFound,
+  PutObjectCommand,
+} from "@aws-sdk/client-s3";
 import { command, type Environment, remoteRoot, value } from "./operations";
 import { DEFAULT_DATAFUSION_DISTRIBUTED_ROOT } from "./paths";
+import { s3Client } from "./target";
 
 function sha256(file: string): string {
   return createHash("sha256").update(fs.readFileSync(file)).digest("hex");
 }
-function publishBinary(
+async function publishBinary(
   env: Environment,
   file: string,
   bucket: string,
   prefix: string,
-): string {
+): Promise<string> {
   const key = `${prefix}/${sha256(file)}/${path.basename(file)}`;
   const uri = `s3://${bucket}/${key}`;
-  if (
-    !env.aws(["s3api", "head-object", "--bucket", bucket, "--key", key], {
-      capture: true,
-      allowFailure: true,
-    })
-  )
-    env.aws(["s3", "cp", file, uri], { stderr: true });
+  const client = s3Client(env.target);
+  try {
+    try {
+      await client.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
+    } catch (error: unknown) {
+      if (!(error instanceof NotFound)) throw error;
+      await client.send(
+        new PutObjectCommand({
+          Bucket: bucket,
+          Key: key,
+          Body: fs.createReadStream(file),
+          ContentLength: fs.statSync(file).size,
+        }),
+      );
+    }
+  } finally {
+    client.destroy();
+  }
   console.error(`Published ${uri}`);
   return uri;
 }
-export function publishDatafusion(env: Environment): string {
+export async function publishDatafusion(env: Environment): Promise<string> {
   const source = path.resolve(
     value(env.flags, "source-root", DEFAULT_DATAFUSION_DISTRIBUTED_ROOT),
   );
@@ -52,6 +68,8 @@ export function publishDatafusion(env: Environment): string {
         "x86_64-unknown-linux-gnu",
       ],
       {
+        // Apply the checkout's rust-toolchain.toml.
+        cwd: source,
         stderr: true,
         env: {
           CARGO_TARGET_DIR: target,
@@ -67,11 +85,13 @@ export function publishDatafusion(env: Environment): string {
   return publishBinary(
     env,
     path.join(target, "x86_64-unknown-linux-gnu/release/worker"),
-    value(env.flags, "artifact-bucket", env.output("datasetBucketName")),
+    value(env.flags, "artifact-bucket", env.target.bucket),
     value(env.flags, "artifact-prefix", ".benchmark-artifacts/datafusion"),
   );
 }
-export function publishBallista(env: Environment): Record<string, string> {
+export async function publishBallista(
+  env: Environment,
+): Promise<Record<string, string>> {
   const source = path.join(remoteRoot, "engines/ballista");
   const target = path.resolve(
     value(env.flags, "target-dir", path.join(source, "target")),
@@ -87,6 +107,8 @@ export function publishBallista(env: Environment): Record<string, string> {
       "x86_64-unknown-linux-gnu",
     ],
     {
+      // Apply the engine's rust-toolchain.toml.
+      cwd: source,
       stderr: true,
       env: {
         CARGO_TARGET_DIR: target,
@@ -102,107 +124,41 @@ export function publishBallista(env: Environment): Record<string, string> {
       },
     },
   );
-  return Object.fromEntries(
-    ["ballista-scheduler", "ballista-executor", "ballista-http"].map(
-      (binary) => [
-        binary,
-        publishBinary(
-          env,
-          path.join(target, "x86_64-unknown-linux-gnu/release", binary),
-          env.output("datasetBucketName"),
-          ".benchmark-artifacts/ballista",
-        ),
-      ],
-    ),
-  );
+  const artifacts: Record<string, string> = {};
+  for (const binary of [
+    "ballista-scheduler",
+    "ballista-executor",
+    "ballista-http",
+  ])
+    artifacts[binary] = await publishBinary(
+      env,
+      path.join(target, "x86_64-unknown-linux-gnu/release", binary),
+      env.target.bucket,
+      ".benchmark-artifacts/ballista",
+    );
+  return artifacts;
 }
-export async function publishImage(
-  env: Environment,
-  engine: string,
-): Promise<string> {
+export function publishImage(env: Environment, engine: string): string {
   if (engine !== "spark")
     throw new Error(`No container image publisher is defined for ${engine}`);
+  const registry = env.target.imageRegistry;
+  if (!registry)
+    throw new Error(
+      "Set imageRegistry in the target or pass an existing image to the deploy command",
+    );
   const context = path.join(remoteRoot, "engines/spark");
-  const files = ["Dockerfile", "spark_http.py"];
   const hash = createHash("sha256");
-  for (const file of files)
-    hash.update(
-      `${sha256(path.join(context, file))}  ${path.join(context, file)}\n`,
-    );
-  const tag = hash.digest("hex").slice(0, 24);
-  const repositories = env.outputs.repositoryUrls as
-    Record<string, string> | undefined;
-  const repository = repositories?.spark;
-  if (!repository) throw new Error("Missing Spark repository URL");
-  const image = `${repository}:${tag}`;
+  for (const file of ["Dockerfile", "spark_http.py"])
+    hash.update(`${sha256(path.join(context, file))}  ${file}\n`);
+  const image = `${registry}/benchmark-${engine}:${hash.digest("hex").slice(0, 24)}`;
   const exists = (): boolean =>
-    Boolean(
-      env.aws(
-        [
-          "ecr",
-          "describe-images",
-          "--repository-name",
-          repository.slice(repository.indexOf("/") + 1),
-          "--image-ids",
-          `imageTag=${tag}`,
-        ],
-        { capture: true, allowFailure: true },
-      ),
-    );
+    command("docker", ["manifest", "inspect", image], {
+      capture: true,
+      allowFailure: true,
+    }) !== "";
   if (!exists()) {
-    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "spark-image-"));
-    try {
-      const archive = path.join(directory, "context.tar.gz");
-      command("tar", ["-czf", archive, "-C", context, ...files], {
-        env: { COPYFILE_DISABLE: "1" },
-      });
-      const artifact = `s3://${env.output("resultsBucketName")}/runs/bootstrap/images/${engine}-${tag}.tar.gz`;
-      env.aws(["s3", "cp", archive, artifact], { stderr: true });
-      const build = env.aws(
-        [
-          "codebuild",
-          "start-build",
-          "--project-name",
-          env.output("imageBuilderProjectName"),
-          "--environment-variables-override",
-          `name=BUILD_CONTEXT,value=${artifact},type=PLAINTEXT`,
-          `name=IMAGE_URI,value=${image},type=PLAINTEXT`,
-          "--query",
-          "build.id",
-          "--output",
-          "text",
-        ],
-        { capture: true },
-      );
-      for (let attempt = 0; ; attempt++) {
-        const status = env.aws(
-          [
-            "codebuild",
-            "batch-get-builds",
-            "--ids",
-            build,
-            "--query",
-            "builds[0].buildStatus",
-            "--output",
-            "text",
-          ],
-          { capture: true },
-        );
-        if (status === "SUCCEEDED") break;
-        if (["FAILED", "FAULT", "STOPPED", "TIMED_OUT"].includes(status)) {
-          if (exists()) break;
-          env.aws(["codebuild", "batch-get-builds", "--ids", build], {
-            stderr: true,
-          });
-          throw new Error(`CodeBuild ${build} ${status}`);
-        }
-        if (attempt === 239)
-          throw new Error(`Timed out waiting for CodeBuild build ${build}`);
-        await setTimeout(5000);
-      }
-    } finally {
-      fs.rmSync(directory, { recursive: true, force: true });
-    }
+    command("docker", ["build", "--tag", image, context], { stderr: true });
+    command("docker", ["push", image], { stderr: true });
   }
   console.error(`Published ${image}`);
   return image;

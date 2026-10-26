@@ -1,5 +1,0 @@
-dist/
-node_modules/
-Pulumi.*.yaml
-!Pulumi.yaml
-SECURITY_AUDIT.md

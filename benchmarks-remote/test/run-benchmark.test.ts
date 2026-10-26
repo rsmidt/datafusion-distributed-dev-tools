@@ -72,7 +72,7 @@ test("all benchmark clients use the same local port", () => {
     path.resolve(__dirname, "../src/lib/port-forward.ts"),
     "utf8",
   );
-  assert.match(runner, /"9000:9000"/);
+  assert.match(runner, /\$\{configuration\.localPort \?\? "9000"\}:9000`/);
   assert.doesNotMatch(runner, /case \$\{engine\}|_URL=/);
 });
 

@@ -1,0 +1,6 @@
+# Applied to every engine chart after k8s/worker-resources.yaml.
+# Pin measured workers to dedicated benchmark nodes; one worker per node.
+workerNodeSelector:
+  node-role.example.internal/benchmark: "true"
+coordinatorNodeSelector: {}
+tolerations: []

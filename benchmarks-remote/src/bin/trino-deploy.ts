@@ -11,13 +11,7 @@ try {
     description: message`Deploy Trino`,
   });
   const env = new Deployment("trino", flags);
-  env.deploy({
-    workerReplicas: env.nodes,
-    workerInstanceType: env.instance,
-    coordinatorInstanceType: env.output("coordinatorInstanceType"),
-    region: env.region,
-    datasetBucket: env.output("datasetBucketName"),
-  });
+  env.deploy({ workerReplicas: env.nodes });
 } catch (error: unknown) {
   console.error(errorMessage(error));
   process.exitCode = 1;

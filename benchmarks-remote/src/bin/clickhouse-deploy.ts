@@ -11,10 +11,7 @@ try {
     description: message`Deploy Clickhouse`,
   });
   const env = new Deployment("clickhouse", flags);
-  env.deploy({
-    workerReplicas: env.nodes,
-    workerInstanceType: env.instance,
-  });
+  env.deploy({ workerReplicas: env.nodes });
 } catch (error: unknown) {
   console.error(errorMessage(error));
   process.exitCode = 1;

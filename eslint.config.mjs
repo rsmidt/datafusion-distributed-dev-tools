@@ -23,12 +23,7 @@ export default [
     languageOptions: {
       parser: tseslint.parser,
       parserOptions: {
-        project: [
-          "./benchmark-bot/tsconfig.json",
-          "./benchmark-bot/tsconfig.pulumi.json",
-          "./benchmarks-remote/tsconfig.json",
-          "./benchmarks-remote/pulumi/tsconfig.json",
-        ],
+        project: ["./benchmarks-remote/tsconfig.json"],
         tsconfigRootDir: import.meta.dirname,
       },
       globals: globals.node,

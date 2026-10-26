@@ -1,0 +1,12 @@
+{
+  "kubeContext": "kind-dfd-bench",
+  "bucket": "benchmarks",
+  "s3": {
+    "endpoint": "http://rustfs.object-store.svc.cluster.local:9000",
+    "clientEndpoint": "http://localhost:9900",
+    "region": "us-east-1"
+  },
+  "imageRegistry": "localhost:5001",
+  "workers": 3,
+  "helmValues": "values.yaml"
+}

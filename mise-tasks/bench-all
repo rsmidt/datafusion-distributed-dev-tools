@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+#MISE description="Deploy, benchmark and destroy each engine in turn, then print all results side by side"
+#USAGE arg "[dataset]" help="Dataset to benchmark" default="tpch/sf1"
+#USAGE flag "--engines <engines>" help="Comma-separated engines, run in this order" default="datafusion,trino,spark,ballista,clickhouse"
+#USAGE flag "--iterations <n>" help="Measured iterations per query" default="3"
+#USAGE flag "--queries <ids>" help="Comma-separated query IDs (default: all)"
+#USAGE flag "--url <url>" help="Local benchmark URL; its port is used for the port-forward" default="http://localhost:9000"
+#
+# Acts on the selected target (BENCHMARK_TARGET plus S3 credentials), e.g. after
+# `. local/kind/env.sh`. Engines are destroyed after their run, on failure, and
+# on Ctrl-C; a failing engine does not stop the remaining ones.
+set -uo pipefail
+
+: "${BENCHMARK_TARGET:?Select a target first, for example: . local/kind/env.sh}"
+cd "$MISE_PROJECT_ROOT/benchmarks-remote"
+
+dataset=$usage_dataset
+bench_args=(--iterations "$usage_iterations" --url "$usage_url" --no-compare)
+[ -n "${usage_queries:-}" ] && bench_args+=(--queries "$usage_queries")
+
+deployed=""
+destroy() {
+  [ -z "$deployed" ] && return
+  echo "==> Destroying $deployed"
+  npm run --silent "$deployed-destroy" || echo "!! Could not destroy $deployed; run npm run $deployed-destroy" >&2
+  deployed=""
+}
+trap destroy EXIT
+trap 'exit 130' INT TERM
+
+completed=()
+failed=()
+for engine in ${usage_engines//,/ }; do
+  echo "==> Deploying $engine"
+  deployed=$engine
+  extra=()
+  # Store DataFusion under its engine name so every summary column is an engine.
+  [ "$engine" = datafusion ] && extra=(--result-name datafusion)
+  if npm run --silent "$engine-deploy" &&
+    echo "==> Benchmarking $engine on $dataset" &&
+    npm run --silent "$engine-bench" -- "$dataset" "${bench_args[@]}" "${extra[@]}"; then
+    completed+=("$engine")
+  else
+    failed+=("$engine")
+  fi
+  destroy
+done
+
+echo
+if [ ${#completed[@]} -gt 0 ]; then
+  npm run --silent summary -- "$dataset" "${completed[@]}"
+fi
+if [ ${#failed[@]} -gt 0 ]; then
+  echo "Failed engines: ${failed[*]} (see their output above)" >&2
+  exit 1
+fi

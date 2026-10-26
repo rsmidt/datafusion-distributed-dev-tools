@@ -5,6 +5,14 @@ import type { AddressInfo } from "node:net";
 
 import { dataFusionSettingStatements } from "../src/bin/datafusion-bench";
 
+const testTarget = {
+  file: "target.json",
+  kubeContext: "cluster",
+  bucket: "bucket",
+  s3: { endpoint: "http://s3.storage.svc:9000", region: "eu-central-1" },
+  workers: 3,
+};
+
 test("does not override DataFusion defaults when flags are omitted", () => {
   assert.equal(dataFusionSettingStatements({}), "");
 });
@@ -100,30 +108,34 @@ test("registers Iceberg metadata and Parquet directories with the worker", async
     url: `http://127.0.0.1:${address.port}`,
     configs: [],
   } as unknown as ConstructorParameters<typeof DataFusionRunner>[0]);
-  await runner.createTables([
-    {
-      suite: "tpch",
-      schema: "tpch_sf1",
-      name: "orders",
-      fileType: "PARQUET",
-      s3Path: "s3://bucket/tpch/sf1/orders/",
-    },
-    {
-      suite: "tpch",
-      schema: "tpch_sf1_iceberg",
-      name: "lineitem",
-      fileType: "ICEBERG",
-      s3Path: "s3://bucket/tpch/sf1_iceberg/lineitem/metadata.json",
-    },
-  ]);
+  await runner.createTables(
+    [
+      {
+        suite: "tpch",
+        schema: "tpch_sf1",
+        name: "orders",
+        fileType: "PARQUET",
+        s3Path: "s3://bucket/tpch/sf1/orders/",
+      },
+      {
+        suite: "tpch",
+        schema: "tpch_sf1_iceberg",
+        name: "lineitem",
+        fileType: "ICEBERG",
+        s3Path: "s3://bucket/tpch/sf1_iceberg/lineitem/metadata.json",
+      },
+    ],
+    testTarget,
+  );
   assert.match(
     sql,
     /orders STORED AS PARQUET LOCATION 's3:\/\/bucket\/tpch\/sf1\/orders\/'/,
   );
   assert.match(
     sql,
-    /lineitem STORED AS ICEBERG LOCATION 's3:\/\/bucket\/tpch\/sf1_iceberg\/lineitem\/metadata.json'/,
+    /lineitem STORED AS ICEBERG LOCATION 's3:\/\/bucket\/tpch\/sf1_iceberg\/lineitem\/metadata.json' OPTIONS \('s3.endpoint' 'http:\/\/s3.storage.svc:9000', 's3.region' 'eu-central-1', 's3.path-style-access' 'true'\);/,
   );
+  assert.match(sql, /orders\/';/);
 });
 
 test("discovers Iceberg table metadata in S3 and reuses the suite queries", async (t) => {
@@ -156,7 +168,7 @@ test("discovers Iceberg table metadata in S3 and reuses the suite queries", asyn
     await tablePathsForDataset(
       "tpch/sf1_iceberg",
       "s3://bucket/prefix",
-      "us-east-1",
+      testTarget,
     ),
     [
       {

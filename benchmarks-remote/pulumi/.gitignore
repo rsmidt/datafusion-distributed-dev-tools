@@ -1,6 +1,0 @@
-node_modules/
-dist/
-.pulumi/
-Pulumi.*.yaml
-!Pulumi.benchmark.example.yaml
-.pulumi-outputs*.json

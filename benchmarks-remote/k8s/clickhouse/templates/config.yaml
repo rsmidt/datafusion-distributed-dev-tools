@@ -34,7 +34,7 @@ data:
           <join_use_nulls>1</join_use_nulls>
           <union_default_mode>DISTINCT</union_default_mode>
           <cast_keep_nullable>1</cast_keep_nullable>
-          <!-- Read benchmark datasets with the pod identity's credentials. -->
+          <!-- Read benchmark datasets with the credentials in the pod environment. -->
           <s3_allow_server_credentials_in_user_queries>1</s3_allow_server_credentials_in_user_queries>
         </default>
       </profiles>

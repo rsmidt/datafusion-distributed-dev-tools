@@ -15,7 +15,7 @@ data:
     -XX:+ExitOnOutOfMemoryError
   worker-jvm.config: |
     -server
-    -Xmx10G
+    -Xmx{{ .Values.trino.workerHeap }}
     -XX:+UseG1GC
     -XX:G1HeapRegionSize=32M
     -XX:+ExplicitGCInvokesConcurrent
@@ -37,14 +37,18 @@ data:
     discovery.uri=http://trino:9000
     query.max-memory=80GB
     query.max-total-memory=80GB
-    query.max-memory-per-node=8GB
-    memory.heap-headroom-per-node=1.5GB
+    query.max-memory-per-node={{ .Values.trino.workerQueryMemoryPerNode }}
+    memory.heap-headroom-per-node={{ .Values.trino.workerHeapHeadroom }}
   hive.properties: |
     connector.name=hive
     hive.metastore=file
     hive.metastore.catalog.dir=file:///var/trino/catalog
     fs.native-local.enabled=true
     fs.native-s3.enabled=true
-    s3.region={{ .Values.region }}
+    s3.endpoint=${ENV:AWS_ENDPOINT_URL}
+    s3.region=${ENV:AWS_REGION}
+    s3.path-style-access=true
+    s3.aws-access-key=${ENV:AWS_ACCESS_KEY_ID}
+    s3.aws-secret-key=${ENV:AWS_SECRET_ACCESS_KEY}
   tpch.properties: |
     connector.name=tpch

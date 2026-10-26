@@ -9,6 +9,7 @@ import {
 import type { ExecuteQueryResult, TableSpec } from "../lib/runner";
 import { splitViewQuery, type BenchmarkRunner } from "../lib/runner";
 import { replaceTableReferences } from "../lib/table-references";
+import type { Target } from "../lib/target";
 
 // Matches the remote_servers entry in k8s/clickhouse/templates/config.yaml.
 const CLUSTER = "benchmark";
@@ -33,12 +34,13 @@ const COLUMN_TYPES: Record<string, Record<string, Record<string, string>>> = {
   clickbench: { hits: { EventDate: "Date" } },
 };
 
-export function clickhouseTableUrl(table: TableSpec, region: string): string {
+// ClickHouse workers fetch the URL themselves, so it uses the in-cluster endpoint.
+export function clickhouseTableUrl(table: TableSpec, endpoint: string): string {
   const match = /^s3:\/\/([^/]+)\/(.+?)\/?$/.exec(table.s3Path);
   if (!match?.[1] || !match[2]) {
     throw new Error(`Invalid S3 table path '${table.s3Path}'`);
   }
-  return `https://${match[1]}.s3.${region}.amazonaws.com/${match[2]}/*.parquet`;
+  return `${endpoint.replace(/\/+$/, "")}/${match[1]}/${match[2]}/*.parquet`;
 }
 
 export function clickhouseTableSource(
@@ -144,7 +146,7 @@ export class ClickHouseRunner implements BenchmarkRunner {
     return body;
   }
 
-  async createTables(tables: TableSpec[]): Promise<void> {
+  async createTables(tables: TableSpec[], target: Target): Promise<void> {
     const firstTable = tables[0];
     if (!firstTable) {
       throw new Error("No tables were provided");
@@ -154,7 +156,7 @@ export class ClickHouseRunner implements BenchmarkRunner {
     this.viewSources.clear();
     await this.query(`CREATE DATABASE IF NOT EXISTS "${database}"`);
     for (const table of tables) {
-      const url = clickhouseTableUrl(table, this.options.region);
+      const url = clickhouseTableUrl(table, target.s3.endpoint);
       const description = describeResponseSchema.parse(
         JSON.parse(
           await this.query(

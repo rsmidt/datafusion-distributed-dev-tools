@@ -10,7 +10,7 @@ const Options = object({
     description: message`Benchmark engine`,
   }),
 });
-async function main(): Promise<void> {
+function main(): void {
   const flags = runSync(Options, {
     help: "option",
     showDefault: true,
@@ -18,9 +18,11 @@ async function main(): Promise<void> {
   });
   const { engine } = flags;
 
-  console.log(await publishImage(new Environment(flags), engine));
+  console.log(publishImage(new Environment(flags), engine));
 }
-void main().catch((error: unknown) => {
+try {
+  main();
+} catch (error: unknown) {
   console.error(errorMessage(error));
   process.exitCode = 1;
-});
+}

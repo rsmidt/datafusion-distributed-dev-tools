@@ -18,9 +18,14 @@ spec:
         app.kubernetes.io/name: {{ .Values.name }}-worker
     spec:
       serviceAccountName: benchmark-engine
+      {{- with .Values.workerNodeSelector }}
       nodeSelector:
-        karpenter.sh/nodepool: general-purpose
-        node.kubernetes.io/instance-type: {{ .Values.worker.instanceType | quote }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       affinity:
         podAntiAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -33,7 +38,10 @@ spec:
           image: {{ .Values.worker.artifactImage | quote }}
           command: ["/bin/sh", "-c"]
           args:
-            - aws s3 cp {{ required "worker.artifact is required" .Values.worker.artifact | quote }} /opt/benchmark/worker && chmod 0755 /opt/benchmark/worker
+            - rclone copyto {{ printf ":s3:%s" (required "worker.artifact is required" .Values.worker.artifact | trimPrefix "s3://") | quote }} /opt/benchmark/worker --s3-provider Other --s3-env-auth --s3-endpoint "$AWS_ENDPOINT_URL" --s3-region "$AWS_REGION" && chmod 0755 /opt/benchmark/worker
+          envFrom:
+            - secretRef:
+                name: benchmark-s3
           volumeMounts:
             - name: worker-binary
               mountPath: /opt/benchmark
@@ -53,8 +61,9 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: status.podIP
-            - name: AWS_REGION
-              value: us-east-1
+          envFrom:
+            - secretRef:
+                name: benchmark-s3
           ports:
             - name: http
               containerPort: 9000

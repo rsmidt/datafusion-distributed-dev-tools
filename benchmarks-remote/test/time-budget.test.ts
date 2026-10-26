@@ -15,12 +15,10 @@ function options(
   overrides: Partial<CommonOptions> = {},
 ): CommonOptions {
   return {
+    target: path.join(root, "target.json"),
     bucket: "s3://bucket",
-    clusterName: "cluster",
     dataset: "tpch/sf1",
     iterations: 1,
-    kubeconfig: path.join(root, "kubeconfig"),
-    region: "us-east-1",
     queries: undefined,
     service: "service",
     testdataRoot: root,
@@ -34,7 +32,14 @@ function options(
 }
 
 function installFakeKubectl(root: string): () => void {
-  fs.writeFileSync(path.join(root, "kubeconfig"), "");
+  fs.writeFileSync(
+    path.join(root, "target.json"),
+    JSON.stringify({
+      kubeContext: "cluster",
+      bucket: "bucket",
+      s3: { endpoint: "http://127.0.0.1:1" },
+    }),
+  );
   const kubectl = path.join(root, "kubectl");
   fs.writeFileSync(
     kubectl,

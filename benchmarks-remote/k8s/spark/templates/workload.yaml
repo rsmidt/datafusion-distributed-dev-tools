@@ -31,9 +31,14 @@ spec:
         app.kubernetes.io/component: coordinator
     spec:
       serviceAccountName: benchmark-engine
+      {{- with .Values.coordinatorNodeSelector }}
       nodeSelector:
-        karpenter.sh/nodepool: general-purpose
-        node.kubernetes.io/instance-type: {{ .Values.coordinatorInstanceType | quote }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: master
           image: {{ required "image is required" .Values.image | quote }}
@@ -50,8 +55,8 @@ spec:
             - {name: SPARK_MASTER_HOST, value: spark}
             - {name: SPARK_DRIVER_HOST, value: spark}
             - {name: HTTP_PORT, value: "9000"}
-            - {name: AWS_REGION, value: us-east-1}
-            - {name: AWS_EC2_METADATA_DISABLED, value: "false"}
+          envFrom:
+            - secretRef: {name: benchmark-s3}
           ports:
             - {name: http, containerPort: 9000}
             - {name: driver, containerPort: 7078}
@@ -82,9 +87,14 @@ spec:
         app.kubernetes.io/component: worker
     spec:
       serviceAccountName: benchmark-engine
+      {{- with .Values.workerNodeSelector }}
       nodeSelector:
-        karpenter.sh/nodepool: general-purpose
-        node.kubernetes.io/instance-type: {{ .Values.workerInstanceType | quote }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       affinity:
         podAntiAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -98,7 +108,9 @@ spec:
           image: {{ required "image is required" .Values.image | quote }}
           command: ["spark-class", "org.apache.spark.deploy.worker.Worker", "spark://spark:7077"]
           env:
-            - {name: SPARK_WORKER_CORES, value: "7"}
-            - {name: SPARK_WORKER_MEMORY, value: 15g}
+            - {name: SPARK_WORKER_CORES, value: {{ .Values.spark.workerCores | quote }}}
+            - {name: SPARK_WORKER_MEMORY, value: {{ .Values.spark.workerMemory | quote }}}
+          envFrom:
+            - secretRef: {name: benchmark-s3}
           resources:
             {{- toYaml (required "workerResources is required" .Values.workerResources) | nindent 12 }}

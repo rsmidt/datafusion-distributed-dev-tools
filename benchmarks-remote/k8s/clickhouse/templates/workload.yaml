@@ -52,9 +52,14 @@ spec:
         app.kubernetes.io/component: worker
     spec:
       serviceAccountName: benchmark-engine
+      {{- with .Values.workerNodeSelector }}
       nodeSelector:
-        karpenter.sh/nodepool: general-purpose
-        node.kubernetes.io/instance-type: {{ .Values.workerInstanceType | quote }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       affinity:
         podAntiAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -68,6 +73,8 @@ spec:
           image: {{ .Values.image | quote }}
           env:
             - {name: CLICKHOUSE_SKIP_USER_SETUP, value: "1"}
+          envFrom:
+            - secretRef: {name: benchmark-s3}
           ports:
             - {name: http, containerPort: 8123}
             - {name: native, containerPort: 9000}

@@ -5,8 +5,4 @@ target/
 .data/
 /.env
 .idea/
-*.db
-*.db-shm
-*.db-wal
 SECURITY_AUDIT.md
-Pulumi.*.yaml

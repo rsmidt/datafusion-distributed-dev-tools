@@ -34,19 +34,26 @@ spec:
       serviceAccountName: benchmark-engine
       securityContext:
         fsGroup: 1000
+      {{- with .Values.coordinatorNodeSelector }}
       nodeSelector:
-        karpenter.sh/nodepool: general-purpose
-        node.kubernetes.io/instance-type: {{ .Values.coordinatorInstanceType | quote }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: trino
           image: {{ .Values.image | quote }}
+          envFrom:
+            - secretRef: {name: benchmark-s3}
           ports:
             - name: http
               containerPort: 9000
+          # /v1/info answers before startup finishes; the image's check waits for "starting": false.
           readinessProbe:
-            httpGet:
-              path: /v1/info
-              port: http
+            exec:
+              command: ["/usr/lib/trino/bin/health-check"]
             periodSeconds: 5
             failureThreshold: 60
           resources:
@@ -90,9 +97,14 @@ spec:
       serviceAccountName: benchmark-engine
       securityContext:
         fsGroup: 1000
+      {{- with .Values.workerNodeSelector }}
       nodeSelector:
-        karpenter.sh/nodepool: general-purpose
-        node.kubernetes.io/instance-type: {{ .Values.workerInstanceType | quote }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       affinity:
         podAntiAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -104,10 +116,12 @@ spec:
       containers:
         - name: trino
           image: {{ .Values.image | quote }}
+          envFrom:
+            - secretRef: {name: benchmark-s3}
+          # /v1/info answers before startup finishes; the image's check waits for "starting": false.
           readinessProbe:
-            httpGet:
-              path: /v1/info
-              port: 9000
+            exec:
+              command: ["/usr/lib/trino/bin/health-check"]
             periodSeconds: 5
             failureThreshold: 60
           resources:

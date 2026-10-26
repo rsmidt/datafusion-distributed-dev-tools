@@ -9,9 +9,8 @@ Operate from `benchmarks-remote`. Supported engine names are `datafusion`, `trin
 
 ## Preconditions
 
-1. Use the caller-selected `AWS_PROFILE`. Pass `--region <region>` to project commands when operating outside their `us-east-1` default; use `AWS_REGION` or `--region` for direct AWS CLI calls. Never hardcode an account, profile, or `aws-vault` wrapper.
-2. Run `aws sts get-caller-identity`. If SSO has expired and `AWS_PROFILE` is set, run `aws sso login --profile "$AWS_PROFILE"` once; stop if authentication still fails.
-3. Require `pulumi/.pulumi-outputs.json`. If it is missing, report that the foundation must be deployed; do not deploy it implicitly.
+1. Require a selected target (`BENCHMARK_TARGET` or `--target`) and `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` for its bucket. Never guess a target, context, bucket, or credentials.
+2. Require that `npm run install-tenancy` has run for the target (the `benchmark-s3` secret exists in `benchmark-<engine>`). Report it if missing; do not install it implicitly on a shared cluster.
 
 ## Deploy or update
 
@@ -31,18 +30,18 @@ npm run ballista-deploy
 npm run clickhouse-deploy
 ```
 
-Deploy commands publish content-addressed artifacts when required and perform an atomic Helm install or upgrade. DataFusion and Ballista publish Linux binaries, Spark publishes an ECR image through CodeBuild, and Trino and ClickHouse use their chart images directly. Rerun the same deploy command after interruption.
+Deploy commands publish content-addressed artifacts when required and perform an atomic Helm install or upgrade. DataFusion and Ballista publish Linux binaries to the target bucket, Spark builds and pushes an image to the target's `imageRegistry`, and Trino and ClickHouse use their chart images directly. Rerun the same deploy command after interruption.
 
-Keep the default 12 measured workers. Do not set `--nodes` or alter `worker-resources.yaml` unless the user requests a different benchmark shape. Every measured worker must use the shared node-filling resource configuration and one worker per benchmark node.
+Keep the target's worker count. Do not set `--nodes` or alter `worker-resources.yaml` or the target's Helm values unless the user requests a different benchmark shape. Every measured worker must use the shared node-filling resource configuration and one worker per benchmark node.
 
 Deployment is persistent. Do not destroy the engine after deployment unless teardown was requested.
 
 ## Inspect and diagnose
 
-Use the generated kubeconfig:
+Use the target's `kubeContext`:
 
 ```bash
-export KUBECONFIG="$PWD/k8s/.kubeconfig"
+kubectl config use-context <kubeContext>
 helm list --all-namespaces
 kubectl get pods --namespace benchmark-<engine> -o wide
 kubectl get nodes -o wide
@@ -58,7 +57,7 @@ Prefer pod status, events, and relevant container logs when a Helm readiness wai
 
 ## Destroy
 
-Engine teardown is explicit and leaves the foundation and datasets intact:
+Engine teardown is explicit and leaves the target and datasets intact:
 
 ```bash
 npm run datafusion-destroy
@@ -84,8 +83,7 @@ HELM_DRIVER=secret npm run datafusion-destroy -- --deployment-name my-worker
 ```
 
 Verify that the selected release's deployment and pods are removed. Pods may
-remain terminating briefly, and EKS Auto Mode removes empty capacity
-asynchronously.
+remain terminating briefly.
 
 ## Validate changes
 

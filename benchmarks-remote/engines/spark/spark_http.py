@@ -19,6 +19,7 @@ def get_spark():
             f'{spark_home}/jars/bundle-2.29.52.jar',
             f'{spark_home}/jars/aws-java-sdk-bundle-1.12.262.jar',
         ]))
+        endpoint = os.environ['AWS_ENDPOINT_URL']
         spark = SparkSession.builder \
             .appName("SparkHTTPServer") \
             .master(f"spark://{master_host}:7077") \
@@ -29,7 +30,13 @@ def get_spark():
             .config("spark.jars", spark_jars) \
             .config("spark.sql.catalogImplementation", "hive") \
             .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem") \
-            .config("spark.hadoop.fs.s3a.aws.credentials.provider", "com.amazonaws.auth.InstanceProfileCredentialsProvider") \
+            .config("spark.hadoop.fs.s3a.aws.credentials.provider", "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider") \
+            .config("spark.hadoop.fs.s3a.access.key", os.environ['AWS_ACCESS_KEY_ID']) \
+            .config("spark.hadoop.fs.s3a.secret.key", os.environ['AWS_SECRET_ACCESS_KEY']) \
+            .config("spark.hadoop.fs.s3a.endpoint", endpoint) \
+            .config("spark.hadoop.fs.s3a.endpoint.region", os.environ['AWS_REGION']) \
+            .config("spark.hadoop.fs.s3a.path.style.access", "true") \
+            .config("spark.hadoop.fs.s3a.connection.ssl.enabled", str(endpoint.startswith("https://")).lower()) \
             .enableHiveSupport() \
             .getOrCreate()
 

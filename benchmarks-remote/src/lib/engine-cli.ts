@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
 
-import { ListObjectsV2Command, S3Client } from "@aws-sdk/client-s3";
+import { ListObjectsV2Command, type S3Client } from "@aws-sdk/client-s3";
 
 import {
   argument,
@@ -17,24 +17,22 @@ import {
   string,
   transform,
   withDefault,
-  WithDefaultError,
   type InferValue,
   type ValueParser,
 } from "@optique/core";
 
-import { getLocalFoundationConfiguration } from "./pulumi-output";
 import { errorMessage } from "./filesystem";
 import { discoverDatasetTables, type ReadDirectory } from "./dataset-formats";
 import {
   datasetParts,
   datasetPath,
   DEFAULT_DATAFUSION_DISTRIBUTED_ROOT,
-  DEV_TOOLS_ROOT,
 } from "./paths";
 import { withKubectlPortForward } from "./port-forward";
 import { compareQueryIds } from "./query-order";
 import { BenchmarkRun, BenchResult, type QueryIter } from "./results";
 import type { BenchmarkRunner, TableSpec } from "./runner";
+import { loadTarget, s3Client, targetFile, type Target } from "./target";
 
 export const integerValue: ValueParser<"sync", number> = integer();
 export const numberValue: ValueParser<"sync", number> = float();
@@ -47,33 +45,15 @@ export const booleanValue: ValueParser<"sync", boolean> = transform(
 );
 
 export const CommonOptions = object({
-  bucket: withDefault(
-    option("--bucket", string({ metavar: "URI" }), {
-      description: message`S3 bucket containing benchmark data`,
+  target: optional(
+    option("--target", string({ metavar: "FILE" }), {
+      description: message`Benchmark target file (default: $BENCHMARK_TARGET)`,
     }),
-    () => {
-      const bucket = getLocalFoundationConfiguration()?.bucket;
-      if (bucket === undefined) {
-        throw new WithDefaultError(
-          message`Could not resolve --bucket. Run npm run foundation-deploy to generate the local Pulumi outputs, or pass --bucket manually.`,
-        );
-      }
-      return bucket;
-    },
   ),
-  clusterName: withDefault(
-    option("--k8s-cluster", string({ metavar: "NAME" }), {
-      description: message`Benchmark Kubernetes cluster`,
+  bucket: optional(
+    option("--bucket", string({ metavar: "URI" }), {
+      description: message`S3 bucket containing benchmark data (default: the target's bucket)`,
     }),
-    () => {
-      const clusterName = getLocalFoundationConfiguration()?.clusterName;
-      if (clusterName === undefined) {
-        throw new WithDefaultError(
-          message`Could not resolve --k8s-cluster. Run npm run foundation-deploy to generate the local Pulumi outputs, or pass --k8s-cluster manually.`,
-        );
-      }
-      return clusterName;
-    },
   ),
   dataset: argument(string({ metavar: "DATASET" }), {
     description: message`Dataset to run queries on`,
@@ -83,18 +63,6 @@ export const CommonOptions = object({
       description: message`Number of iterations`,
     }),
     5,
-  ),
-  kubeconfig: withDefault(
-    option("--kubeconfig", string({ metavar: "PATH" }), {
-      description: message`Path to the Kubernetes configuration`,
-    }),
-    path.join(DEV_TOOLS_ROOT, "benchmarks-remote", "k8s", ".kubeconfig"),
-  ),
-  region: withDefault(
-    option("--region", string({ metavar: "REGION" }), {
-      description: message`AWS region containing the cluster`,
-    }),
-    "us-east-1",
   ),
   service: optional(
     option("--k8s-service", string({ metavar: "NAME" }), {
@@ -115,7 +83,7 @@ export const CommonOptions = object({
   ),
   url: withDefault(
     option("--url", string({ metavar: "URL" }), {
-      description: message`Benchmark engine URL`,
+      description: message`Benchmark engine URL; its port is the local port-forward port`,
     }),
     "http://localhost:9000",
   ),
@@ -196,13 +164,13 @@ export function readS3Directory(
 export async function tablePathsForDataset(
   dataset: string,
   bucket: string,
-  region: string,
+  target: Target,
 ): Promise<TableSpec[]> {
   const bucketUri = `s3://${bucket.replace(/^s3:\/\//, "").replace(/\/+$/, "")}`;
   const [suite] = datasetParts(dataset);
   const schema = dataset.replaceAll("/", "_");
   const { bucketName, prefix } = s3BucketAndPrefix(bucket);
-  const client = new S3Client({ region });
+  const client = s3Client(target);
   let tables;
   try {
     tables = await discoverDatasetTables(
@@ -317,8 +285,11 @@ export async function runEngineBenchmark(
       );
     }
 
+    const target = loadTarget(targetFile(options.target));
     const portForwardConfiguration = {
-      ...options,
+      context: target.kubeContext,
+      // The benchmark URL decides which local port the forward listens on.
+      localPort: new URL(options.url).port || "80",
       deployment: runner.deployment,
       service: options.service ?? runner.defaultService ?? runner.deployment,
     };
@@ -347,8 +318,8 @@ export async function runEngineBenchmark(
       console.error("Creating tables...");
       const tableSpecs = await tablePathsForDataset(
         dataset,
-        options.bucket,
-        options.region,
+        options.bucket ?? `s3://${target.bucket}`,
+        target,
       );
       const formats = runner.supportedFileTypes ?? ["PARQUET"];
       for (const table of tableSpecs) {
@@ -358,7 +329,7 @@ export async function runEngineBenchmark(
           );
         }
       }
-      await runner.createTables(tableSpecs);
+      await runner.createTables(tableSpecs, target);
 
       for (const { id, sql } of availableQueries) {
         if (selectedQueries.length > 0 && !selectedQueries.includes(id)) {

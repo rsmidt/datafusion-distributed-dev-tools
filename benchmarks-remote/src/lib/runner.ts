@@ -1,4 +1,5 @@
 import type { CommonOptions } from "./engine-cli";
+import type { Target } from "./target";
 
 export interface TableSpec {
   suite: string;
@@ -26,7 +27,7 @@ export interface BenchmarkRunner {
 
   readonly options: CommonOptions;
 
-  createTables(s3Paths: TableSpec[]): Promise<void>;
+  createTables(s3Paths: TableSpec[], target: Target): Promise<void>;
 
   executeQuery(query: string): Promise<ExecuteQueryResult>;
 }

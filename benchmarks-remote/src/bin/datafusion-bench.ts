@@ -23,6 +23,7 @@ import {
 import { datafusionDistributedGitReference } from "../lib/git-reference";
 import type { ExecuteQueryResult, TableSpec } from "../lib/runner";
 import { splitViewQuery, type BenchmarkRunner } from "../lib/runner";
+import type { Target } from "../lib/target";
 
 const Options = object({
   resultName: withDefault(
@@ -193,12 +194,14 @@ export class DataFusionRunner implements BenchmarkRunner {
     return queryResponseSchema.parse(await response.json());
   }
 
-  async createTables(tables: TableSpec[]): Promise<void> {
+  async createTables(tables: TableSpec[], target: Target): Promise<void> {
     let statement = "";
     for (const table of tables) {
+      const options =
+        table.fileType === "ICEBERG" ? icebergStorageOptions(target) : "";
       statement += `
     DROP TABLE IF EXISTS ${table.name};
-    CREATE EXTERNAL TABLE IF NOT EXISTS ${table.name} STORED AS ${table.fileType} LOCATION '${table.s3Path.replaceAll("'", "''")}';
+    CREATE EXTERNAL TABLE IF NOT EXISTS ${table.name} STORED AS ${table.fileType} LOCATION '${sqlString(table.s3Path)}'${options};
  `;
     }
     await this.query(statement);
@@ -207,6 +210,24 @@ export class DataFusionRunner implements BenchmarkRunner {
       await this.query(settings);
     }
   }
+}
+
+function sqlString(value: string): string {
+  return value.replaceAll("'", "''");
+}
+
+// Iceberg reads through its own FileIO, which ignores the object_store
+// environment, so the endpoint travels with the table definition.
+// Credentials stay in the worker environment.
+export function icebergStorageOptions(target: Target): string {
+  const options = {
+    "s3.endpoint": target.s3.endpoint,
+    "s3.region": target.s3.region,
+    "s3.path-style-access": "true",
+  };
+  return ` OPTIONS (${Object.entries(options)
+    .map(([key, value]) => `'${key}' '${sqlString(value)}'`)
+    .join(", ")})`;
 }
 
 export function dataFusionSettingStatements(

@@ -29,15 +29,22 @@ spec:
         app.kubernetes.io/component: scheduler
     spec:
       serviceAccountName: benchmark-engine
+      {{- with .Values.coordinatorNodeSelector }}
       nodeSelector:
-        karpenter.sh/nodepool: general-purpose
-        node.kubernetes.io/instance-type: {{ .Values.coordinatorInstanceType | quote }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       initContainers:
         - name: download-binaries
           image: {{ .Values.artifactImage | quote }}
           command: ["/bin/sh", "-c"]
           args:
-            - aws s3 cp {{ required "artifacts.scheduler is required" .Values.artifacts.scheduler | quote }} /opt/benchmark/ballista-scheduler && aws s3 cp {{ required "artifacts.http is required" .Values.artifacts.http | quote }} /opt/benchmark/ballista-http && chmod 0755 /opt/benchmark/*
+            - {{ include "ballista.download" (list (required "artifacts.scheduler is required" .Values.artifacts.scheduler) "ballista-scheduler") }} && {{ include "ballista.download" (list (required "artifacts.http is required" .Values.artifacts.http) "ballista-http") }} && chmod 0755 /opt/benchmark/*
+          envFrom:
+            - secretRef: {name: benchmark-s3}
           volumeMounts:
             - {name: binaries, mountPath: /opt/benchmark}
       containers:
@@ -47,7 +54,8 @@ spec:
           args: ["--bind-host", "0.0.0.0", "--external-host", "ballista", "--bind-port", "50050"]
           env:
             - {name: BUCKET, value: {{ required "datasetBucket is required" .Values.datasetBucket | quote }}}
-            - {name: AWS_REGION, value: us-east-1}
+          envFrom:
+            - secretRef: {name: benchmark-s3}
           ports:
             - {name: scheduler, containerPort: 50050}
           resources:
@@ -59,8 +67,8 @@ spec:
           image: {{ .Values.runtimeImage | quote }}
           command: ["/opt/benchmark/ballista-http"]
           args: ["--bucket", {{ required "datasetBucket is required" .Values.datasetBucket | quote }}, "--target-partitions", "96"]
-          env:
-            - {name: AWS_REGION, value: us-east-1}
+          envFrom:
+            - secretRef: {name: benchmark-s3}
           ports:
             - {name: http, containerPort: 9000}
           readinessProbe:
@@ -94,9 +102,14 @@ spec:
         app.kubernetes.io/component: executor
     spec:
       serviceAccountName: benchmark-engine
+      {{- with .Values.workerNodeSelector }}
       nodeSelector:
-        karpenter.sh/nodepool: general-purpose
-        node.kubernetes.io/instance-type: {{ .Values.workerInstanceType | quote }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       affinity:
         podAntiAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -110,17 +123,20 @@ spec:
           image: {{ .Values.artifactImage | quote }}
           command: ["/bin/sh", "-c"]
           args:
-            - aws s3 cp {{ required "artifacts.executor is required" .Values.artifacts.executor | quote }} /opt/benchmark/ballista-executor && chmod 0755 /opt/benchmark/ballista-executor
+            - {{ include "ballista.download" (list (required "artifacts.executor is required" .Values.artifacts.executor) "ballista-executor") }} && chmod 0755 /opt/benchmark/ballista-executor
+          envFrom:
+            - secretRef: {name: benchmark-s3}
           volumeMounts:
             - {name: binaries, mountPath: /opt/benchmark}
       containers:
         - name: executor
           image: {{ .Values.runtimeImage | quote }}
           command: ["/opt/benchmark/ballista-executor"]
-          args: ["--bind-host", "0.0.0.0", "--bind-port", "50051", "--work-dir", "/var/ballista", "--scheduler-host", "ballista", "--scheduler-port", "50050", "--memory-pool-size", "16GiB", "--job-data-clean-up-interval-seconds", "300", "--job-data-ttl-seconds", "3600"]
+          args: ["--bind-host", "0.0.0.0", "--bind-port", "50051", "--work-dir", "/var/ballista", "--scheduler-host", "ballista", "--scheduler-port", "50050", "--memory-pool-size", {{ .Values.ballista.executorMemoryPool | quote }}, "--job-data-clean-up-interval-seconds", "300", "--job-data-ttl-seconds", "3600"]
           env:
             - {name: BUCKET, value: {{ required "datasetBucket is required" .Values.datasetBucket | quote }}}
-            - {name: AWS_REGION, value: us-east-1}
+          envFrom:
+            - secretRef: {name: benchmark-s3}
           resources:
             {{- toYaml (required "workerResources is required" .Values.workerResources) | nindent 12 }}
           volumeMounts:

@@ -52,17 +52,7 @@ test("rejects explicitly empty query selections", async () => {
     await runEngineBenchmark(
       new FakeRunner(
         "test",
-        parseOptions([
-          "node",
-          "benchmark",
-          "--bucket",
-          "s3://bucket",
-          "--k8s-cluster",
-          "cluster",
-          "tpch/sf1",
-          "--queries",
-          " , ",
-        ]),
+        parseOptions(["node", "benchmark", "tpch/sf1", "--queries", " , "]),
       ),
     );
     assert.match(
@@ -89,9 +79,16 @@ test("writes progress to stderr and only explicit comparisons to stdout", async 
         ? { CommonPrefixes: [{ Prefix: "tpch/sf1/table/" }] }
         : { Contents: [{ Key: "tpch/sf1/table/1.parquet" }] },
   );
-  const kubeconfig = path.join(root, "kubeconfig");
+  const target = path.join(root, "target.json");
   const kubectl = path.join(root, "kubectl");
-  fs.writeFileSync(kubeconfig, "");
+  fs.writeFileSync(
+    target,
+    JSON.stringify({
+      kubeContext: "cluster",
+      bucket: "bucket",
+      s3: { endpoint: "http://127.0.0.1:1" },
+    }),
+  );
   fs.writeFileSync(
     kubectl,
     `#!/usr/bin/env node
@@ -118,13 +115,9 @@ setInterval(() => {}, 1_000);
     const commonArguments = [
       "node",
       "benchmark",
-      "--bucket",
-      "s3://bucket",
-      "--k8s-cluster",
-      "cluster",
+      "--target",
+      target,
       "tpch/sf1",
-      "--kubeconfig",
-      kubeconfig,
       "--testdata-root",
       root,
       "--iterations",

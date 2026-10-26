@@ -16,17 +16,17 @@ test("reads Parquet tables across the ClickHouse cluster", () => {
     s3Path: "s3://datasets/tpch/sf10/lineitem/",
     fileType: "PARQUET",
   };
-  const url = clickhouseTableUrl(lineitem, "us-east-1");
+  const url = clickhouseTableUrl(lineitem, "http://s3.storage.svc:9000/");
   assert.equal(
     url,
-    "https://datasets.s3.us-east-1.amazonaws.com/tpch/sf10/lineitem/*.parquet",
+    "http://s3.storage.svc:9000/datasets/tpch/sf10/lineitem/*.parquet",
   );
   assert.equal(
     clickhouseTableSource(lineitem, url, [
       ["l_orderkey", "Int64"],
       ["l_quantity", "Decimal(15, 2)"],
     ]),
-    "s3Cluster('benchmark', 'https://datasets.s3.us-east-1.amazonaws.com/tpch/sf10/lineitem/*.parquet', 'Parquet', '`l_orderkey` Int64, `l_quantity` Decimal(15, 2)')",
+    "s3Cluster('benchmark', 'http://s3.storage.svc:9000/datasets/tpch/sf10/lineitem/*.parquet', 'Parquet', '`l_orderkey` Int64, `l_quantity` Decimal(15, 2)')",
   );
 });
 
@@ -40,13 +40,13 @@ test("reads ClickBench event dates as dates", () => {
         s3Path: "s3://datasets/clickbench/0-100/hits/",
         fileType: "PARQUET",
       },
-      "https://datasets.s3.eu-west-1.amazonaws.com/clickbench/0-100/hits/*.parquet",
+      "http://s3.storage.svc:9000/datasets/clickbench/0-100/hits/*.parquet",
       [
         ["EventDate", "Nullable(UInt16)"],
         ["Title", "Nullable(String)"],
       ],
     ),
-    "s3Cluster('benchmark', 'https://datasets.s3.eu-west-1.amazonaws.com/clickbench/0-100/hits/*.parquet', 'Parquet', '`EventDate` Date, `Title` Nullable(String)')",
+    "s3Cluster('benchmark', 'http://s3.storage.svc:9000/datasets/clickbench/0-100/hits/*.parquet', 'Parquet', '`EventDate` Date, `Title` Nullable(String)')",
   );
 });
 

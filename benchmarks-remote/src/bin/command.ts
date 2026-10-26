@@ -23,7 +23,6 @@ try {
   });
 
   const env = new Environment(flags);
-  env.ensureKubeconfig();
   const pod = env.kubectl(
     [
       "get",

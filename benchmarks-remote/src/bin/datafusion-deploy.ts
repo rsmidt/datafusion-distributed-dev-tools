@@ -25,7 +25,7 @@ const Options = object({
   ),
 });
 
-try {
+async function main(): Promise<void> {
   const flags = runSync(Options, {
     help: "option",
     showDefault: true,
@@ -35,16 +35,12 @@ try {
     throw new Error("--worker-cpu and --worker-memory must be set together");
   const env = new Deployment("datafusion", flags);
   const settings: Record<string, string> = {
-    "worker.artifact": value(
-      flags,
-      "worker-artifact",
+    "worker.artifact":
       typeof flags["worker-artifact"] === "string"
-        ? undefined
-        : publishDatafusion(env),
-    ),
-    "worker.datasetBucket": env.output("datasetBucketName"),
+        ? value(flags, "worker-artifact")
+        : await publishDatafusion(env),
+    "worker.datasetBucket": env.target.bucket,
     "worker.replicas": env.nodes,
-    "worker.instanceType": env.instance,
     name: env.name,
   };
   if (flags["worker-cpu"]) {
@@ -57,7 +53,8 @@ try {
     }
   }
   env.deploy(settings);
-} catch (error: unknown) {
+}
+void main().catch((error: unknown) => {
   console.error(errorMessage(error));
   process.exitCode = 1;
-}
+});

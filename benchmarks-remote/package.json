@@ -2,19 +2,14 @@
   "name": "datafusion-distributed-remote-benchmarks",
   "version": "0.1.0",
   "private": true,
-  "workspaces": [
-    "pulumi"
-  ],
   "scripts": {
-    "build": "tsc --noEmit && npm --workspace pulumi run build",
-    "application:build": "esbuild src/bin/datafusion-bench.ts src/bin/compare.ts src/bin/datafusion-deploy.ts src/bin/datafusion-destroy.ts --bundle --platform=node --target=node24 --format=cjs --outdir=dist --out-extension:.js=.cjs",
-    "test": "tsx --test test/*.test.ts && npm --workspace pulumi test",
-    "format": "prettier --write src test package.json tsconfig.json README.md AGENTS.md .agents \"k8s/**/*.md\" && npm --workspace pulumi run format",
-    "format:check": "prettier --check src test package.json tsconfig.json README.md AGENTS.md .agents \"k8s/**/*.md\" && npm --workspace pulumi run format:check",
-    "foundation-deploy": "tsx src/bin/deploy-foundation.ts",
-    "foundation-destroy": "tsx src/bin/destroy-foundation.ts",
+    "build": "tsc --noEmit",
+    "test": "tsx --test test/*.test.ts",
+    "format": "prettier --write src test package.json tsconfig.json README.md AGENTS.md .agents \"k8s/**/*.md\"",
+    "format:check": "prettier --check src test package.json tsconfig.json README.md AGENTS.md .agents \"k8s/**/*.md\"",
     "dataset-destroy": "tsx src/bin/destroy-dataset.ts",
     "compare": "tsx src/bin/compare.ts",
+    "summary": "tsx src/bin/summary.ts",
     "datafusion-bench": "tsx src/bin/datafusion-bench.ts",
     "trino-bench": "tsx src/bin/trino-bench.ts",
     "spark-bench": "tsx src/bin/spark-bench.ts",
@@ -46,7 +41,6 @@
   },
   "devDependencies": {
     "@types/node": "24.13.3",
-    "esbuild": "^0.28.2",
     "prettier": "3.9.6",
     "tsx": "4.23.12",
     "typescript": "5.9.3"

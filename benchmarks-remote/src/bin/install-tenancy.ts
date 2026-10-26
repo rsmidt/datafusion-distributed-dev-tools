@@ -13,9 +13,7 @@ try {
     description: message`Install benchmark tenancy`,
   });
 
-  const env = new Environment(flags);
-  env.credentials();
-  installTenancy(env);
+  installTenancy(new Environment(flags));
 } catch (error: unknown) {
   console.error(errorMessage(error));
   process.exitCode = 1;

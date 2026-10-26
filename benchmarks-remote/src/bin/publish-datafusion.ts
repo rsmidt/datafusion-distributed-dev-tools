@@ -8,15 +8,16 @@ const Options = object({
   ...commonFlags,
   ...publishingFlags,
 });
-try {
+async function main(): Promise<void> {
   const flags = runSync(Options, {
     help: "option",
     showDefault: true,
     description: message`Publish the DataFusion worker`,
   });
 
-  console.log(publishDatafusion(new Environment(flags)));
-} catch (error: unknown) {
+  console.log(await publishDatafusion(new Environment(flags)));
+}
+void main().catch((error: unknown) => {
   console.error(errorMessage(error));
   process.exitCode = 1;
-}
+});

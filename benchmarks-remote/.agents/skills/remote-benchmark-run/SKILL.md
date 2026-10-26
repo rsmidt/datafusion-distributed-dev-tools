@@ -9,8 +9,8 @@ Operate from `benchmarks-remote`. Benchmark execution is local and connects to t
 
 ## Preconditions
 
-1. Use the caller-selected `AWS_PROFILE`. Pass `--region <region>` to project commands when operating outside their `us-east-1` default; use `AWS_REGION` or `--region` for direct AWS CLI calls. Never hardcode an account, profile, or `aws-vault` wrapper.
-2. Require an existing foundation, deployed engine, and completed dataset in S3. Do not deploy infrastructure, install an engine, or generate or upload data as part of a benchmark command.
+1. Require a selected target (`BENCHMARK_TARGET` or `--target`) and `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` for its bucket. Never guess a target, context, bucket, or credentials.
+2. Require a prepared target, deployed engine, and completed dataset in S3. Do not deploy infrastructure, install an engine, or generate or upload data as part of a benchmark command.
 3. Use literal dataset paths such as `tpch/sf10` or `clickbench/0-100`; never translate them to underscore aliases.
 
 ## Run
@@ -36,7 +36,8 @@ Common options are:
 
 Pass engine-specific DataFusion options only to `datafusion-bench`; inspect `npm run datafusion-bench -- --help` and `src/bin/datafusion-bench.ts` before changing defaults.
 
-The TypeScript engine CLI opens `localhost:9000`, runs the local client, and
+The TypeScript engine CLI opens a port-forward on the port of `--url`
+(default `localhost:9000`), runs the local client, and
 cleans up the tunnel on exit. It does not upload results. Abrupt interruption
 may leave the previous completed local results, which is acceptable.
 
@@ -50,7 +51,7 @@ For performance claims, prefer the full suite total. Treat a single run or isola
 
 - If the engine service is absent, use `$remote-engine-deployment`; do not add lazy deployment to the runner.
 - If data is missing, use `$remote-datasets`; the runner discovers table formats from S3 listings before execution.
-- If the port-forward fails, inspect the engine namespace, service, and pods with the generated kubeconfig.
+- If the port-forward fails, inspect the engine namespace, service, and pods in the target's `kubeContext`. If the local port is taken, pass `--url http://localhost:<free port>`.
 - If a query fails, preserve the query error and inspect the relevant engine logs. Do not add a separate health-check system.
 
 ## Validate runner changes
@@ -62,4 +63,4 @@ npm run build
 npm test
 ```
 
-Then run at least one live query with one iteration and no warmup against each affected engine. Confirm the command exits successfully and leaves no listener on local port 9000.
+Then run at least one live query with one iteration and no warmup against each affected engine. Confirm the command exits successfully and leaves no listener on the local port.

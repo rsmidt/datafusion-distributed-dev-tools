@@ -1,15 +1,16 @@
 # Kubernetes benchmark tenancy
 
 This Helm chart creates the stable Kubernetes boundary shared by benchmark
-runs. It does not deploy an engine or provision EKS worker nodes.
+runs. It does not deploy an engine or provision nodes.
 
 Each engine has its own namespace, service account, workload, and ingress
 boundary. Engine namespaces accept ingress only from pods in the same
 namespace, so Spark, Trino, Ballista, ClickHouse, and DataFusion cannot talk to one another
 during a run. The benchmark harness runs locally and manages workloads through
-the authenticated infrastructure wrapper.
+the caller's kubeconfig.
 
-Install or update the chart after the EKS cluster exists:
+Install or update the chart, together with the `benchmark-s3` secret in every
+engine namespace, with:
 
 ```bash
 npm run install-tenancy

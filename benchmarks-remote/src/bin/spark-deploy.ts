@@ -12,7 +12,7 @@ const Options = object({
     }),
   ),
 });
-async function main(): Promise<void> {
+function main(): void {
   const flags = runSync(Options, {
     help: "option",
     showDefault: true,
@@ -21,12 +21,12 @@ async function main(): Promise<void> {
   const env = new Deployment("spark", flags);
   env.deploy({
     workerReplicas: env.nodes,
-    workerInstanceType: env.instance,
-    coordinatorInstanceType: env.output("coordinatorInstanceType"),
-    image: flags["spark-image"] ?? (await publishImage(env, "spark")),
+    image: flags["spark-image"] ?? publishImage(env, "spark"),
   });
 }
-void main().catch((error: unknown) => {
+try {
+  main();
+} catch (error: unknown) {
   console.error(errorMessage(error));
   process.exitCode = 1;
-});
+}
